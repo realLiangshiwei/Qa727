@@ -256,5 +256,5 @@ src/Qa727.Web/Logs/*
 src/Qa727.Web.Host/Logs/*
 src/Qa727.IdentityServer/Logs/*
 src/Qa727.HttpApi.Host/Logs/*
-src/Qa727.HttpApi.Host/Logs/*
+src/Qa727.HttpApi.HostWithIds/Logs/*
 src/Qa727.DbMigrator/Logs/*

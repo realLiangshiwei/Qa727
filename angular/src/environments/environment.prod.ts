@@ -10,7 +10,7 @@ export const environment = {
     logoUrl: '',
   },
   oAuthConfig: {
-    issuer: 'https://localhost:44320',
+    issuer: 'https://localhost:44349',
     redirectUri: baseUrl,
     clientId: 'Qa727_App',
     responseType: 'code',
@@ -18,7 +18,7 @@ export const environment = {
   },
   apis: {
     default: {
-      url: 'https://localhost:44320',
+      url: 'https://localhost:44358',
       rootNamespace: 'Qa727',
     },
   },

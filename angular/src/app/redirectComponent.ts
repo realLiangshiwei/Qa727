@@ -8,6 +8,6 @@ export class RedirectComponent implements OnInit {
   constructor() { }
 
   ngOnInit() {
-    window.location.href = 'https://localhost:44320/hangfire';
+    window.location.href = 'https://localhost:44349/hangfire';
   }
 }

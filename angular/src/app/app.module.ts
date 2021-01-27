@@ -8,7 +8,6 @@ import { ThemeSharedModule } from '@abp/ng.theme.shared';
 import { NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
-import { ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
 import { NgxsModule } from '@ngxs/store';
 import { environment } from '../environments/environment';
 import { AppRoutingModule } from './app-routing.module';
@@ -32,14 +31,7 @@ import { APP_ROUTE_PROVIDER } from './route.provider';
     ThemeBasicModule.forRoot(),
   ],
   declarations: [AppComponent],
-  providers: [APP_ROUTE_PROVIDER,
-    {
-      provide: 'externalUrlRedirectResolver',
-      useValue: (route: ActivatedRouteSnapshot, state: RouterStateSnapshot) =>
-      {
-          window.location.href = (route.data as any).externalUrl;
-      }
-}],
+  providers: [APP_ROUTE_PROVIDER],
   bootstrap: [AppComponent],
 })
 export class AppModule {}

@@ -2,35 +2,29 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
-using Hangfire;
-using Hangfire.Dashboard;
-using Hangfire.MemoryStorage;
-using IdentityServer4.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qa727.EntityFrameworkCore;
 using Qa727.MultiTenancy;
-using Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic;
+using StackExchange.Redis;
 using Microsoft.OpenApi.Models;
 using Volo.Abp;
-using Volo.Abp.Account.Web;
-using Volo.Abp.AspNetCore.Authentication.JwtBearer;
-using Volo.Abp.AspNetCore.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc;
-using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
-using Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic.Bundling;
+using Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared;
 using Volo.Abp.AspNetCore.Serilog;
 using Volo.Abp.Autofac;
-using Volo.Abp.BackgroundJobs.Hangfire;
+using Volo.Abp.Caching;
+using Volo.Abp.Caching.StackExchangeRedis;
 using Volo.Abp.Localization;
 using Volo.Abp.Modularity;
 using Volo.Abp.Swashbuckle;
-using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
 
 namespace Qa727
@@ -38,15 +32,12 @@ namespace Qa727
     [DependsOn(
         typeof(Qa727HttpApiModule),
         typeof(AbpAutofacModule),
-        typeof(AbpAspNetCoreMultiTenancyModule),
+        typeof(AbpCachingStackExchangeRedisModule),
+        typeof(AbpAspNetCoreMvcUiMultiTenancyModule),
         typeof(Qa727ApplicationModule),
         typeof(Qa727EntityFrameworkCoreDbMigrationsModule),
-        typeof(AbpAspNetCoreMvcUiBasicThemeModule),
-        typeof(AbpAspNetCoreAuthenticationJwtBearerModule),
-        typeof(AbpAccountWebIdentityServerModule),
         typeof(AbpAspNetCoreSerilogModule),
-        typeof(AbpSwashbuckleModule),
-        typeof(AbpBackgroundJobsHangfireModule)
+        typeof(AbpSwashbuckleModule)
     )]
     public class Qa727HttpApiHostModule : AbpModule
     {
@@ -57,35 +48,19 @@ namespace Qa727
             var configuration = context.Services.GetConfiguration();
             var hostingEnvironment = context.Services.GetHostingEnvironment();
 
-            ConfigureBundles();
-            ConfigureUrls(configuration);
             ConfigureConventionalControllers();
             ConfigureAuthentication(context, configuration);
             ConfigureLocalization();
+            ConfigureCache(configuration);
             ConfigureVirtualFileSystem(context);
+            ConfigureRedis(context, configuration, hostingEnvironment);
             ConfigureCors(context, configuration);
-            ConfigureSwaggerServices(context);
-
-            GlobalConfiguration.Configuration.UseMemoryStorage();
+            ConfigureSwaggerServices(context, configuration);
         }
 
-        private void ConfigureBundles()
+        private void ConfigureCache(IConfiguration configuration)
         {
-            Configure<AbpBundlingOptions>(options =>
-            {
-                options.StyleBundles.Configure(
-                    BasicThemeBundles.Styles.Global,
-                    bundle => { bundle.AddFiles("/global-styles.css"); }
-                );
-            });
-        }
-
-        private void ConfigureUrls(IConfiguration configuration)
-        {
-            Configure<AppUrlOptions>(options =>
-            {
-                options.Applications["MVC"].RootUrl = configuration["App:SelfUrl"];
-            });
+            Configure<AbpDistributedCacheOptions>(options => { options.KeyPrefix = "Qa727:"; });
         }
 
         private void ConfigureVirtualFileSystem(ServiceConfigurationContext context)
@@ -122,23 +97,23 @@ namespace Qa727
 
         private void ConfigureAuthentication(ServiceConfigurationContext context, IConfiguration configuration)
         {
-            context.Services.AddAuthentication()
+            context.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
                     options.Authority = configuration["AuthServer:Authority"];
                     options.RequireHttpsMetadata = Convert.ToBoolean(configuration["AuthServer:RequireHttpsMetadata"]);
                     options.Audience = "Qa727";
-                    options.BackchannelHttpHandler = new HttpClientHandler
-                    {
-                        ServerCertificateCustomValidationCallback =
-                            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-                    };
                 });
         }
 
-        private static void ConfigureSwaggerServices(ServiceConfigurationContext context)
+        private static void ConfigureSwaggerServices(ServiceConfigurationContext context, IConfiguration configuration)
         {
-            context.Services.AddSwaggerGen(
+            context.Services.AddAbpSwaggerGenWithOAuth(
+                configuration["AuthServer:Authority"],
+                new Dictionary<string, string>
+                {
+                    {"Qa727", "Qa727 API"}
+                },
                 options =>
                 {
                     options.SwaggerDoc("v1", new OpenApiInfo {Title = "Qa727 API", Version = "v1"});
@@ -163,6 +138,20 @@ namespace Qa727
                 options.Languages.Add(new LanguageInfo("de-DE", "de-DE", "Deutsch", "de"));
                 options.Languages.Add(new LanguageInfo("es", "es", "Español", "es"));
             });
+        }
+
+        private void ConfigureRedis(
+            ServiceConfigurationContext context,
+            IConfiguration configuration,
+            IWebHostEnvironment hostingEnvironment)
+        {
+            if (!hostingEnvironment.IsDevelopment())
+            {
+                var redis = ConnectionMultiplexer.Connect(configuration["Redis:Configuration"]);
+                context.Services
+                    .AddDataProtection()
+                    .PersistKeysToStackExchangeRedis(redis, "Qa727-Protection-Keys");
+            }
         }
 
         private void ConfigureCors(ServiceConfigurationContext context, IConfiguration configuration)
@@ -209,39 +198,27 @@ namespace Qa727
             app.UseRouting();
             app.UseCors(DefaultCorsPolicyName);
             app.UseAuthentication();
-            app.UseJwtTokenMiddleware();
 
             if (MultiTenancyConsts.IsEnabled)
             {
                 app.UseMultiTenancy();
             }
 
-            app.UseIdentityServer();
             app.UseAuthorization();
 
             app.UseSwagger();
-            app.UseAbpSwaggerUI(c =>
+            app.UseAbpSwaggerUI(options =>
             {
-                c.SwaggerEndpoint("/swagger/v1/swagger.json", "Qa727 API");
-            });
+                options.SwaggerEndpoint("/swagger/v1/swagger.json", "Qa727 API");
 
-            app.UseHangfireDashboard(options: new DashboardOptions
-            {
-                Authorization = new[] {new HangfireAuthorizationFilter()}
+                var configuration = context.GetConfiguration();
+                options.OAuthClientId(configuration["AuthServer:SwaggerClientId"]);
+                options.OAuthClientSecret(configuration["AuthServer:SwaggerClientSecret"]);
             });
-
 
             app.UseAuditing();
             app.UseAbpSerilogEnrichers();
             app.UseConfiguredEndpoints();
-        }
-    }
-
-    public class HangfireAuthorizationFilter : IDashboardAuthorizationFilter
-    {
-        public bool Authorize(DashboardContext context)
-        {
-            return context.GetHttpContext().User.IsAuthenticated();
         }
     }
 }
